@@ -1,6 +1,5 @@
 use egui::{
-    CentralPanel, Color32, Context, CornerRadius, CursorIcon, EventFilter, Frame, Key, Pos2, Rect,
-    Sense, StrokeKind, Ui, Vec2,
+    Context, CornerRadius, CursorIcon, EventFilter, Key, Pos2, Rect, Sense, StrokeKind, Ui, Vec2,
 };
 
 use duplicate::duplicate;
@@ -20,46 +19,6 @@ mod main_surface;
 mod window_surface;
 
 impl<Tab> DockArea<'_, Tab> {
-    /// Show the `DockArea` at the top level.
-    ///
-    /// This is the same as doing:
-    ///
-    /// ```
-    /// # use egui_dock::{DockArea, DockState};
-    /// # use egui::{CentralPanel, Frame};
-    /// # struct TabViewer {}
-    /// # impl egui_dock::TabViewer for TabViewer {
-    /// #     type Tab = String;
-    /// #     fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText { (&*tab).into() }
-    /// #     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {}
-    /// # }
-    /// # let mut tree: DockState<String> = DockState::new(vec![]);
-    /// # let mut tab_viewer = TabViewer {};
-    /// # egui::__run_test_ctx(|ctx| {
-    /// CentralPanel::default()
-    ///     .frame(Frame::central_panel(&ctx.style()).inner_margin(0.))
-    ///     .show(ctx, |ui| {
-    ///         DockArea::new(&mut tree).show_inside(ui, &mut tab_viewer);
-    ///     });
-    /// # });
-    /// ```
-    ///
-    /// So you can't use the [`CentralPanel::show`] when using `DockArea`'s one.
-    ///
-    /// See also [`show_inside`](Self::show_inside).
-    #[inline]
-    pub fn show(self, ctx: &Context, tab_viewer: &mut impl TabViewer<Tab = Tab>) {
-        CentralPanel::default()
-            .frame(
-                Frame::central_panel(&ctx.style())
-                    .inner_margin(0.)
-                    .fill(Color32::TRANSPARENT),
-            )
-            .show(ctx, |ui| {
-                self.show_inside(ui, tab_viewer);
-            });
-    }
-
     /// Shows the docking hierarchy inside a [`Ui`].
     ///
     /// See also [`show`](Self::show).
