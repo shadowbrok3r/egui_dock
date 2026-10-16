@@ -1,5 +1,6 @@
-use crate::{Split, TabIndex};
 use egui::Rect;
+
+use crate::{Split, TabIndex};
 
 mod leaf;
 mod split;
@@ -219,6 +220,13 @@ impl<Tab> Node<Tab> {
         }
     }
 
+    /// Returns an [`Iterator`] of tabs in this node with their corresponding [`TabIndex`].
+    pub fn iter_tabs_indexed(&self) -> impl Iterator<Item = (TabIndex, &Tab)> {
+        self.iter_tabs()
+            .enumerate()
+            .map(|(index, tab)| (TabIndex(index), tab))
+    }
+
     /// Returns a mutable [`Iterator`] of tabs in this node.
     ///
     /// If this node is not a [`Leaf`](Self::Leaf), then the returned [`Iterator`] will be empty.
@@ -228,6 +236,13 @@ impl<Tab> Node<Tab> {
             Some(tabs) => tabs.iter_mut(),
             None => core::slice::IterMut::default(),
         }
+    }
+
+    /// Returns a mutable [`Iterator`] of tabs in this node with their corresponding [`TabIndex`].
+    pub fn iter_tabs_mut_indexed(&mut self) -> impl Iterator<Item = (TabIndex, &mut Tab)> {
+        self.iter_tabs_mut()
+            .enumerate()
+            .map(|(index, tab)| (TabIndex(index), tab))
     }
 
     /// Adds `tab` to the node and sets it as the active tab.
@@ -268,6 +283,28 @@ impl<Tab> Node<Tab> {
             Node::Leaf(leaf) => leaf.collapsed = collapsed,
             Node::Vertical(split) | Node::Horizontal(split) => split.fully_collapsed = collapsed,
             Node::Empty => panic!("node was empty"),
+        }
+    }
+
+    /// Returns `true` if the node is a leaf with a hidden tab bar, otherwise `false`.
+    #[inline(always)]
+    pub fn is_tab_bar_hidden(&self) -> bool {
+        match self {
+            Node::Leaf(leaf) => leaf.tab_bar_hidden,
+            _ => false,
+        }
+    }
+
+    /// Sets the tab bar hidden state of the node.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `self` is not a [`Leaf`](Node::Leaf) node.
+    #[inline]
+    pub fn set_tab_bar_hidden(&mut self, tab_bar_hidden: bool) {
+        match self {
+            Node::Leaf(leaf) => leaf.tab_bar_hidden = tab_bar_hidden,
+            _ => panic!("node was not a leaf"),
         }
     }
 
@@ -336,6 +373,7 @@ impl<Tab> Node<Tab> {
                     active,
                     scroll,
                     collapsed,
+                    tab_bar_hidden,
                 } = leaf;
                 let tabs: Vec<_> = tabs.iter().filter_map(function).collect();
                 if tabs.is_empty() {
@@ -348,6 +386,7 @@ impl<Tab> Node<Tab> {
                         active: *active,
                         scroll: *scroll,
                         collapsed: *collapsed,
+                        tab_bar_hidden: *tab_bar_hidden,
                     })
                 }
             }

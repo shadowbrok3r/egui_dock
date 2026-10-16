@@ -1,17 +1,17 @@
+use duplicate::duplicate;
 use egui::{
     Context, CornerRadius, CursorIcon, EventFilter, Key, Pos2, Rect, Sense, StrokeKind, Ui, Vec2,
 };
-
-use duplicate::duplicate;
 use paste::paste;
 
 use super::{drag_and_drop::TreeComponent, state::State, tab_removal::TabRemoval};
+use crate::NodePath;
 use crate::dock_area::tab_removal::ForcedRemoval;
 use crate::tab_viewer::OnCloseResponse;
 use crate::{
-    utils::{expand_to_pixel, fade_dock_style, map_to_pixel},
     AllowedSplits, DockArea, Node, NodeIndex, OverlayType, Style, SurfaceIndex, TabDestination,
     TabViewer,
+    utils::{expand_to_pixel, fade_dock_style, map_to_pixel},
 };
 
 mod leaf;
@@ -20,8 +20,6 @@ mod window_surface;
 
 impl<Tab> DockArea<'_, Tab> {
     /// Shows the docking hierarchy inside a [`Ui`].
-    ///
-    /// See also [`show`](Self::show).
     pub fn show_inside(mut self, ui: &mut Ui, tab_viewer: &mut impl TabViewer<Tab = Tab>) {
         self.style
             .get_or_insert(Style::from_egui(ui.style().as_ref()));
@@ -45,19 +43,26 @@ impl<Tab> DockArea<'_, Tab> {
             let style = self.style.as_ref().unwrap();
             state.set_drag_and_drop(source, hover, ui.ctx(), style);
             let tab_dst = self.show_drag_drop_overlay(ui, &mut state, tab_viewer);
-            if ui.input(|i| i.pointer.primary_released()) {
-                if let Some(destination) = tab_dst {
-                    let source = {
-                        match state.dnd.as_ref().unwrap().drag.src {
-                            TreeComponent::Tab(src_surf, src_node, src_tab) => {
-                                (src_surf, src_node, src_tab)
-                            }
-                            _ => todo!(
-                                "collections of tabs, like nodes and surfaces can't be docked (yet)"
-                            ),
-                        }
-                    };
-                    self.dock_state.move_tab(source, destination);
+            if ui.input(|i| i.pointer.primary_released())
+                && let Some(destination) = tab_dst
+            {
+                let source = {
+                    match state.dnd.as_ref().unwrap().drag.src {
+                        TreeComponent::Tab(src) => src,
+                        _ => todo!(
+                            "collections of tabs, like nodes and surfaces can't be docked (yet)"
+                        ),
+                    }
+                };
+                let src_tab_count = self.dock_state[source.node_path()].tabs_count();
+                self.dock_state.move_tab(source, destination);
+                // unhide tab bar on the source leaf when a tab is dragged out
+                if self.hidable_tab_bars
+                    && let Ok(leaf) = self.dock_state.leaf_mut(source.node_path())
+                    && leaf.tabs.len() < src_tab_count
+                    && leaf.tab_bar_hidden
+                {
+                    leaf.tab_bar_hidden = false;
                 }
             }
         }
@@ -91,18 +96,18 @@ impl<Tab> DockArea<'_, Tab> {
 
         for removal in self.to_remove.drain(..).rev() {
             match removal {
-                TabRemoval::Tab(surface, node, tab, ForcedRemoval(is_forced)) => {
+                TabRemoval::Tab(path, ForcedRemoval(is_forced)) => {
                     if is_forced {
-                        self.dock_state.remove_tab((surface, node, tab));
+                        self.dock_state.remove_tab(path);
                     } else {
-                        let leaf = &mut self.dock_state[surface][node].get_leaf_mut().unwrap();
-                        match tab_viewer.on_close(&mut leaf.tabs[tab.0]) {
+                        let leaf = &mut self.dock_state.leaf_mut(path.node_path()).unwrap();
+                        match tab_viewer.on_close(&mut leaf.tabs[path.tab.0]) {
                             OnCloseResponse::Close => {
-                                self.dock_state.remove_tab((surface, node, tab));
+                                self.dock_state.remove_tab(path);
                             }
                             OnCloseResponse::Focus => {
-                                leaf.active = tab;
-                                self.new_focused = Some((surface, node));
+                                leaf.active = path.tab;
+                                self.new_focused = Some(path.node_path());
                             }
                             OnCloseResponse::Ignore => {
                                 // no-op
@@ -110,9 +115,9 @@ impl<Tab> DockArea<'_, Tab> {
                         }
                     }
                 }
-                TabRemoval::Node(surface, node) => {
+                TabRemoval::Node(path) => {
                     let mut all_tabs_are_closable = true;
-                    for tab in self.dock_state[surface][node].iter_tabs_mut() {
+                    for tab in self.dock_state[path].iter_tabs_mut() {
                         if !(tab_viewer.is_closeable(tab)
                             && matches!(tab_viewer.on_close(tab), OnCloseResponse::Close))
                         {
@@ -120,7 +125,7 @@ impl<Tab> DockArea<'_, Tab> {
                         }
                     }
                     if all_tabs_are_closable {
-                        self.dock_state.remove_leaf((surface, node));
+                        self.dock_state.remove_leaf(path);
                     }
                 }
                 TabRemoval::Window(surface) => {
@@ -141,13 +146,13 @@ impl<Tab> DockArea<'_, Tab> {
             }
         }
 
-        for (surface_index, node_index, tab_index) in self.to_detach.drain(..).rev() {
+        for path in self.to_detach.drain(..).rev() {
             let mouse_pos = state.last_hover_pos;
             self.dock_state.detach_tab(
-                (surface_index, node_index, tab_index),
+                path,
                 Rect::from_min_size(
                     mouse_pos.unwrap_or(Pos2::ZERO),
-                    self.dock_state[surface_index][node_index]
+                    self.dock_state[path.node_path()]
                         .rect()
                         .map_or(Vec2::new(100., 150.), |rect| rect.size()),
                 ),
@@ -169,11 +174,11 @@ impl<Tab> DockArea<'_, Tab> {
         hold_time: f32,
         ctx: &Context,
     ) -> Option<SurfaceIndex> {
-        if let Some(dnd_state) = &state.dnd {
-            if dnd_state.is_locked(self.style.as_ref().unwrap(), ctx) {
-                state.window_fade =
-                    Some((ctx.input(|i| i.time), dnd_state.hover.dst.surface_address()));
-            }
+        if let Some(dnd_state) = &state.dnd
+            && dnd_state.is_locked(self.style.as_ref().unwrap(), ctx)
+        {
+            state.window_fade =
+                Some((ctx.input(|i| i.time), dnd_state.hover.dst.surface_address()));
         }
 
         state.window_fade.and_then(|(time, surface)| {
@@ -215,11 +220,11 @@ impl<Tab> DockArea<'_, Tab> {
         let allowed_splits = self.allowed_splits & restricted_splits;
 
         let allowed_in_window = match drag_state.drag.src {
-            TreeComponent::Tab(surface, node, tab) => {
-                let Node::Leaf(leaf) = &mut self.dock_state[surface][node] else {
+            TreeComponent::Tab(path) => {
+                let Node::Leaf(leaf) = &mut self.dock_state[path.node_path()] else {
                     unreachable!("tab drags can only come from leaf nodes")
                 };
-                tab_viewer.allowed_in_windows(&mut leaf.tabs[tab.0])
+                tab_viewer.allowed_in_windows(&mut leaf.tabs[path.tab.0])
             }
             _ => todo!("collections of tabs, like nodes or surfaces, can't be dragged! (yet)"),
         };
@@ -274,15 +279,23 @@ impl<Tab> DockArea<'_, Tab> {
         // First compute all rect sizes in the node graph.
         let max_rect = self.allocate_area_for_root_node(ui, surf_index);
         for node_index in self.dock_state[surf_index].breadth_first_index_iter() {
-            if self.dock_state[surf_index][node_index].is_parent() {
-                self.compute_rect_sizes(ui, (surf_index, node_index), max_rect);
+            let path = NodePath {
+                surface: surf_index,
+                node: node_index,
+            };
+            if self.dock_state[path].is_parent() {
+                self.compute_rect_sizes(ui, path, max_rect);
             }
         }
 
         // Then, draw the bodies of each leaves.
         for node_index in self.dock_state[surf_index].breadth_first_index_iter() {
-            if self.dock_state[surf_index][node_index].is_leaf() {
-                self.show_leaf(ui, state, (surf_index, node_index), tab_viewer, fade_style);
+            let path = NodePath {
+                surface: surf_index,
+                node: node_index,
+            };
+            if self.dock_state[path].is_leaf() {
+                self.show_leaf(ui, state, path, tab_viewer, fade_style);
             }
         }
 
@@ -290,8 +303,12 @@ impl<Tab> DockArea<'_, Tab> {
         // bodies (see `SeparatorStyle::extra_interact_width`).
         let fade_style = fade_style.map(|(style, _)| style);
         for node_index in self.dock_state[surf_index].breadth_first_index_iter() {
+            let path = NodePath {
+                surface: surf_index,
+                node: node_index,
+            };
             if self.dock_state[surf_index][node_index].is_parent() {
-                self.show_separator(ui, (surf_index, node_index), fade_style);
+                self.show_separator(ui, path, fade_style);
             }
         }
     }
@@ -323,77 +340,68 @@ impl<Tab> DockArea<'_, Tab> {
         rect
     }
 
-    fn compute_rect_sizes(
-        &mut self,
-        ui: &Ui,
-        (surface_index, node_index): (SurfaceIndex, NodeIndex),
-        max_rect: Rect,
-    ) {
-        assert!(self.dock_state[surface_index][node_index].is_parent());
+    fn compute_rect_sizes(&mut self, ui: &Ui, path: NodePath, max_rect: Rect) {
+        assert!(self.dock_state[path].is_parent());
 
         let style = self.style.as_ref().unwrap();
         let pixels_per_point = ui.ctx().pixels_per_point();
 
-        let left_collapsed_count =
-            self.dock_state[surface_index][node_index.left()].collapsed_leaf_count();
-        let right_collapsed_count =
-            self.dock_state[surface_index][node_index.right()].collapsed_leaf_count();
-        let left_collapsed = self.dock_state[surface_index][node_index.left()].is_collapsed();
-        let right_collapsed = self.dock_state[surface_index][node_index.right()].is_collapsed();
+        let left_collapsed_count = self.dock_state[path.left_node()].collapsed_leaf_count();
+        let right_collapsed_count = self.dock_state[path.right_node()].collapsed_leaf_count();
+        let left_collapsed = self.dock_state[path.left_node()].is_collapsed();
+        let right_collapsed = self.dock_state[path.right_node()].is_collapsed();
 
-        if left_collapsed || right_collapsed {
-            if let Node::Vertical(split) = &mut self.dock_state[surface_index][node_index] {
-                let rect = split.rect();
-                debug_assert!(!rect.any_nan() && rect.is_finite());
-                let rect = expand_to_pixel(rect, pixels_per_point);
+        if (left_collapsed || right_collapsed)
+            && let Node::Vertical(split) = &mut self.dock_state[path.surface][path.node]
+        {
+            let rect = split.rect();
+            debug_assert!(!rect.any_nan() && rect.is_finite());
+            let rect = expand_to_pixel(rect, pixels_per_point);
 
-                if left_collapsed {
-                    // EITHER only left collapsed OR left and right both collapsed
-                    let border_y =
-                        rect.min.y + (left_collapsed_count as f32) * style.tab_bar.height;
-                    let left_separator_border = map_to_pixel(
-                        border_y - style.separator.width * 0.5,
-                        pixels_per_point,
-                        f32::round,
-                    );
-                    let right_separator_border = map_to_pixel(
-                        border_y + style.separator.width * 0.5,
-                        pixels_per_point,
-                        f32::round,
-                    );
-                    let left = rect
-                        .intersect(Rect::everything_above(left_separator_border))
-                        .intersect(max_rect);
-                    let right = rect
-                        .intersect(Rect::everything_below(right_separator_border))
-                        .intersect(max_rect);
-                    self.dock_state[surface_index][node_index.left()].set_rect(left);
-                    self.dock_state[surface_index][node_index.right()].set_rect(right);
-                } else {
-                    // Only right collapsed
-                    let border_y =
-                        rect.max.y - (right_collapsed_count as f32) * style.tab_bar.height;
-                    let left_separator_border = map_to_pixel(
-                        border_y - style.separator.width * 0.5,
-                        pixels_per_point,
-                        f32::round,
-                    );
-                    let right_separator_border = map_to_pixel(
-                        border_y + style.separator.width * 0.5,
-                        pixels_per_point,
-                        f32::round,
-                    );
-                    let left = rect
-                        .intersect(Rect::everything_above(left_separator_border))
-                        .intersect(max_rect);
-                    let right = rect
-                        .intersect(Rect::everything_below(right_separator_border))
-                        .intersect(max_rect);
-                    self.dock_state[surface_index][node_index.left()].set_rect(left);
-                    self.dock_state[surface_index][node_index.right()].set_rect(right);
-                }
-                return;
+            if left_collapsed {
+                // EITHER only left collapsed OR left and right both collapsed
+                let border_y = rect.min.y + (left_collapsed_count as f32) * style.tab_bar.height;
+                let left_separator_border = map_to_pixel(
+                    border_y - style.separator.width * 0.5,
+                    pixels_per_point,
+                    f32::round,
+                );
+                let right_separator_border = map_to_pixel(
+                    border_y + style.separator.width * 0.5,
+                    pixels_per_point,
+                    f32::round,
+                );
+                let left = rect
+                    .intersect(Rect::everything_above(left_separator_border))
+                    .intersect(max_rect);
+                let right = rect
+                    .intersect(Rect::everything_below(right_separator_border))
+                    .intersect(max_rect);
+                self.dock_state[path.left_node()].set_rect(left);
+                self.dock_state[path.right_node()].set_rect(right);
+            } else {
+                // Only right collapsed
+                let border_y = rect.max.y - (right_collapsed_count as f32) * style.tab_bar.height;
+                let left_separator_border = map_to_pixel(
+                    border_y - style.separator.width * 0.5,
+                    pixels_per_point,
+                    f32::round,
+                );
+                let right_separator_border = map_to_pixel(
+                    border_y + style.separator.width * 0.5,
+                    pixels_per_point,
+                    f32::round,
+                );
+                let left = rect
+                    .intersect(Rect::everything_above(left_separator_border))
+                    .intersect(max_rect);
+                let right = rect
+                    .intersect(Rect::everything_below(right_separator_border))
+                    .intersect(max_rect);
+                self.dock_state[path.left_node()].set_rect(left);
+                self.dock_state[path.right_node()].set_rect(right);
             }
+            return;
         }
 
         duplicate! {
@@ -402,12 +410,18 @@ impl<Tab> DockArea<'_, Tab> {
                 [Horizontal]  [x]        [width]   [left_of]  [right_of];
                 [Vertical]    [y]        [height]  [above]    [below];
             ]
-            if let Node::orientation(split) = &mut self.dock_state[surface_index][node_index] {
+            if let Node::orientation(split) = &mut self.dock_state[path.surface][path.node] {
                 let rect = split.rect;
                 debug_assert!(!rect.any_nan() && rect.is_finite());
                 let rect = expand_to_pixel(rect, pixels_per_point);
 
-                let midpoint = rect.min.dim_point + rect.dim_size() * split.fraction;
+                let dim_size = rect.dim_size();
+                let midpoint = if dim_size > 0.0 {
+                    rect.min.dim_point + dim_size * split.fraction
+                } else {
+                    rect.min.dim_point
+                };
+
                 let left_separator_border = map_to_pixel(
                     midpoint - style.separator.width * 0.5,
                     pixels_per_point,
@@ -424,24 +438,19 @@ impl<Tab> DockArea<'_, Tab> {
                     let right = rect.intersect(Rect::[<everything_ right_of>](right_separator_border)).intersect(max_rect);
                 }
 
-                self.dock_state[surface_index][node_index.left()].set_rect(left);
-                self.dock_state[surface_index][node_index.right()].set_rect(right);
+                self.dock_state[path.left_node()].set_rect(left);
+                self.dock_state[path.right_node()].set_rect(right);
             }
         }
     }
 
-    fn show_separator(
-        &mut self,
-        ui: &mut Ui,
-        (surface_index, node_index): (SurfaceIndex, NodeIndex),
-        fade_style: Option<&Style>,
-    ) {
-        assert!(self.dock_state[surface_index][node_index].is_parent());
+    fn show_separator(&mut self, ui: &mut Ui, path: NodePath, fade_style: Option<&Style>) {
+        assert!(self.dock_state[path.surface][path.node].is_parent());
 
         // If either of the children is collapsed, we don't want the user to interact with the separator
-        if (self.dock_state[surface_index][node_index.left()].is_collapsed()
-            || self.dock_state[surface_index][node_index.right()].is_collapsed())
-            && self.dock_state[surface_index][node_index].is_vertical()
+        if (self.dock_state[path.left_node()].is_collapsed()
+            || self.dock_state[path.right_node()].is_collapsed())
+            && self.dock_state[path.surface][path.node].is_vertical()
         {
             return;
         }
@@ -455,7 +464,7 @@ impl<Tab> DockArea<'_, Tab> {
                 [Horizontal]  [x]        [width];
                 [Vertical]    [y]        [height];
             ]
-            if let Node::orientation(split) = &mut self.dock_state[surface_index][node_index] {
+            if let Node::orientation(split) = &mut self.dock_state[path.surface][path.node] {
                 let rect = split.rect;
                 let mut separator = rect;
 
@@ -525,11 +534,13 @@ impl<Tab> DockArea<'_, Tab> {
                 // otherwise it may overlap on other separator / bodies when
                 // shrunk fast.
                 let range = rect.max.dim_point - rect.min.dim_point;
-                let min = (style.separator.extra / range).min(1.0);
-                let max = 1.0 - min;
-                let (min, max) = (min.min(max), max.max(min));
-                let delta = arrow_key_offset.unwrap_or(response.drag_delta()).dim_point;
-                split.fraction = (split.fraction + delta / range).clamp(min, max);
+                if range > 0.0 {
+                    let min = (style.separator.extra / range).min(1.0);
+                    let max = 1.0 - min;
+                    let (min, max) = (min.min(max), max.max(min));
+                    let delta = arrow_key_offset.unwrap_or(response.drag_delta()).dim_point;
+                    split.fraction = (split.fraction + delta / range).clamp(min, max);
+                }
 
                 if response.double_clicked() {
                     split.fraction = 0.5;

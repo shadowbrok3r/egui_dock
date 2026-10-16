@@ -1,10 +1,16 @@
+use std::ops;
+
 use egui::Rect;
 
-use crate::TabIndex;
+use crate::{Error, Result, TabIndex};
 
 /// The inner data of a [``Node::Leaf``](crate::Node), which contains tabs and can be collapsed.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize, serde::Serialize),
+    serde(default)
+)]
 pub struct LeafNode<Tab> {
     /// The full rectangle - tab bar plus tab body.
     pub rect: Rect,
@@ -23,6 +29,9 @@ pub struct LeafNode<Tab> {
 
     /// Whether the leaf is collapsed.
     pub collapsed: bool,
+
+    /// Whether the leaf tab bar is hidden.
+    pub tab_bar_hidden: bool,
 }
 
 impl<Tab> LeafNode<Tab> {
@@ -35,17 +44,21 @@ impl<Tab> LeafNode<Tab> {
             active: TabIndex(0),
             scroll: 0.0,
             collapsed: false,
+            tab_bar_hidden: false,
         }
     }
 
     /// Set the active tab of this [`LeafNode`]
     ///
-    /// If ``active_tab`` is out of bounds, it will be ignored and the active tab will not be changed.
+    /// If `active_tab` is out of bounds, an error is returned and the active tab is not changed.
     #[inline]
-    pub fn set_active_tab(&mut self, active_tab: impl Into<TabIndex>) {
+    pub fn set_active_tab(&mut self, active_tab: impl Into<TabIndex>) -> Result {
         let index = active_tab.into();
         if index.0 < self.len() {
             self.active = index;
+            Ok(())
+        } else {
+            Err(Error::InvalidTab)
         }
     }
 
@@ -139,5 +152,25 @@ impl<Tab> LeafNode<Tab> {
         self.tabs
             .get_mut(self.active.0)
             .map(|tab| (self.viewport, tab))
+    }
+}
+
+impl<Tab> Default for LeafNode<Tab> {
+    fn default() -> Self {
+        Self::new(Vec::new())
+    }
+}
+
+impl<Tab> ops::Index<TabIndex> for LeafNode<Tab> {
+    type Output = Tab;
+
+    fn index(&self, index: TabIndex) -> &Tab {
+        &self.tabs[index.0]
+    }
+}
+
+impl<Tab> ops::IndexMut<TabIndex> for LeafNode<Tab> {
+    fn index_mut(&mut self, index: TabIndex) -> &mut Tab {
+        &mut self.tabs[index.0]
     }
 }

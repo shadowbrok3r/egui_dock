@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use eframe::{egui, NativeOptions};
+use eframe::{NativeOptions, egui};
 use egui_dock::{DockArea, DockState, Style, TabViewer};
 
 /// We identify tabs by the title of the file we are editing.
@@ -23,6 +23,10 @@ struct Buffers {
 
 impl TabViewer for Buffers {
     type Tab = Title;
+
+    fn id(&mut self, tab: &mut Self::Tab) -> egui::Id {
+        egui::Id::new(tab)
+    }
 
     fn title(&mut self, title: &mut Title) -> egui::WidgetText {
         egui::WidgetText::from(&*title)
@@ -71,7 +75,9 @@ impl eframe::App for MyApp {
                 let is_open = tab_location.is_some();
                 if ui.selectable_label(is_open, title).clicked() {
                     if let Some(tab_location) = tab_location {
-                        self.tree.set_active_tab(tab_location);
+                        self.tree
+                            .set_active_tab(tab_location)
+                            .expect("path returned by find_tab is valid");
                     } else {
                         // Open the file for editing:
                         self.tree.push_to_focused_leaf(title.clone());

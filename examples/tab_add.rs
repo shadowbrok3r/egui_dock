@@ -1,8 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-use eframe::{egui, NativeOptions};
-
-use egui_dock::{DockArea, DockState, NodeIndex, Style, SurfaceIndex};
+use eframe::{NativeOptions, egui};
+use egui_dock::{DockArea, DockState, NodeIndex, NodePath, Style};
 
 fn main() -> eframe::Result<()> {
     let options = NativeOptions::default();
@@ -14,11 +13,15 @@ fn main() -> eframe::Result<()> {
 }
 
 struct TabViewer<'a> {
-    added_nodes: &'a mut Vec<(SurfaceIndex, NodeIndex)>,
+    added_nodes: &'a mut Vec<NodePath>,
 }
 
 impl egui_dock::TabViewer for TabViewer<'_> {
     type Tab = usize;
+
+    fn id(&mut self, tab: &mut Self::Tab) -> egui::Id {
+        egui::Id::new(tab)
+    }
 
     fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
         format!("Tab {tab}").into()
@@ -28,8 +31,8 @@ impl egui_dock::TabViewer for TabViewer<'_> {
         ui.label(format!("Content of tab {tab}"));
     }
 
-    fn on_add(&mut self, surface: SurfaceIndex, node: NodeIndex) {
-        self.added_nodes.push((surface, node));
+    fn on_add(&mut self, path: NodePath) {
+        self.added_nodes.push(path);
     }
 }
 
@@ -70,8 +73,8 @@ impl eframe::App for MyApp {
                 },
             );
 
-        added_nodes.drain(..).for_each(|(surface, node)| {
-            self.tree.set_focused_node_and_surface((surface, node));
+        added_nodes.drain(..).for_each(|path| {
+            self.tree.set_focused_node_and_surface(path);
             self.tree.push_to_focused_leaf(self.counter);
             self.counter += 1;
         });

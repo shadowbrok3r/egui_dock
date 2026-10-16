@@ -1,4 +1,4 @@
-use egui::{ecolor::*, CornerRadius, Margin, Stroke};
+use egui::{CornerRadius, Margin, Stroke, ecolor::*};
 
 /// Left or right alignment for tab add button.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -20,14 +20,16 @@ pub enum TabAddAlign {
 ///
 /// ```rust
 /// # use egui_dock::{DockArea, DockState, OverlayType, Style, TabAddAlign, TabViewer};
-/// # use egui::{Ui, WidgetText};
+/// # use egui::{Id, Ui, WidgetText};
 /// # struct MyTabViewer;
 /// # impl TabViewer for MyTabViewer {
 /// #     type Tab = ();
+/// #     fn id(&mut self, tab: &mut Self::Tab) -> Id { Id::new(tab) }
 /// #     fn title(&mut self, tab: &mut Self::Tab) -> WidgetText { WidgetText::default() }
 /// #     fn ui(&mut self, ui: &mut Ui, tab: &mut Self::Tab) {}
 /// # }
 /// # egui::__run_test_ui(|ui| {
+/// # #[allow(deprecated)]
 /// # egui::CentralPanel::default().show(ui, |ui| {
 /// # let mut dock_state = DockState::new(vec![]);
 /// // Inherit the look and feel from egui.
@@ -46,7 +48,11 @@ pub enum TabAddAlign {
 /// #
 /// ```
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize, serde::Serialize),
+    serde(default)
+)]
 #[allow(missing_docs)]
 pub struct Style {
     /// Sets padding to indent from the edges of the window. By `Default` it's `None`.
@@ -64,7 +70,11 @@ pub struct Style {
 
 /// Specifies the look and feel of buttons.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize, serde::Serialize),
+    serde(default)
+)]
 pub struct ButtonsStyle {
     /// Color of the close tab button.
     pub close_tab_color: Color32,
@@ -128,11 +138,27 @@ pub struct ButtonsStyle {
 
     /// Color of the minimize window button's left border.
     pub minimize_window_border_color: Color32,
+
+    /// Color of the show tab bar triangle button.
+    pub show_tab_bar_color: Color32,
+
+    /// Color of the show tab bar triangle button when hovered.
+    pub show_tab_bar_active_color: Color32,
+
+    /// Size of the show tab bar triangle button.
+    pub show_tab_bar_size: f32,
+
+    /// How much the show tab bar button grows when hovered.
+    pub show_tab_bar_hover_expand: f32,
 }
 
 /// Specifies the look and feel of node separators.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize, serde::Serialize),
+    serde(default)
+)]
 pub struct SeparatorStyle {
     /// Width of the rectangle separator between nodes. By `Default` it's `1.0`.
     pub width: f32,
@@ -157,7 +183,11 @@ pub struct SeparatorStyle {
 
 /// Specifies the look and feel of tab bars.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize, serde::Serialize),
+    serde(default)
+)]
 pub struct TabBarStyle {
     /// Background color of tab bar. By `Default` it's [`Color32::WHITE`].
     pub bg_fill: Color32,
@@ -185,7 +215,11 @@ pub struct TabBarStyle {
 
 /// Specifies the look and feel of an individual tab.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize, serde::Serialize),
+    serde(default)
+)]
 pub struct TabStyle {
     /// Style of the tab when it is active.
     pub active: TabInteractionStyle,
@@ -228,7 +262,11 @@ pub struct TabStyle {
 
 /// Specifies the look and feel of individual tabs while they are being interacted with.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize, serde::Serialize),
+    serde(default)
+)]
 pub struct TabInteractionStyle {
     /// Color of the outline around tabs. By `Default` it's [`Color32::BLACK`].
     pub outline_color: Color32,
@@ -245,7 +283,11 @@ pub struct TabInteractionStyle {
 
 /// Specifies the look and feel of the tab body.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize, serde::Serialize),
+    serde(default)
+)]
 pub struct TabBodyStyle {
     /// Inner margin of tab body. By `Default` it's `Margin::same(4.0)`.
     pub inner_margin: Margin,
@@ -258,11 +300,23 @@ pub struct TabBodyStyle {
 
     /// Colour of the tab's background. By `Default` it's [`Color32::WHITE`].
     pub bg_fill: Color32,
+
+    /// Optional height override for the draggable area when the tab bar is hidden.
+    ///
+    /// When `None` (default), the drag area height equals [`TabBodyStyle::inner_margin`]`.top`.
+    /// When `Some(height)`, the drag area uses this height instead, overlapping the tab body
+    /// content without shifting it down.
+    /// Setting this to `Some(0.0)` disables dragging from the hidden tab bar entirely.
+    pub hidden_tab_bar_drag_height: Option<f32>,
 }
 
 /// Specifies the look and feel of the tab drop overlay.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize, serde::Serialize),
+    serde(default)
+)]
 pub struct OverlayStyle {
     /// Sets selection color for the placing area of the tab where this tab targeted on it.
     /// By `Default` it's `(0, 191, 255)` (light blue) with `0.5` capacity.
@@ -298,9 +352,13 @@ pub struct OverlayStyle {
     pub feel: OverlayFeel,
 }
 
-/// Specifies the feel of the tab drop overlay, i.e anything non visual about the overlay.
+/// Specifies the feel of the tab drop overlay, i.e. anything non-visual about the overlay.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize, serde::Serialize),
+    serde(default)
+)]
 pub struct OverlayFeel {
     /// range is `0.0..=1.0`.
     pub window_drop_coverage: f32,
@@ -335,7 +393,11 @@ pub enum OverlayType {
 
 /// Highlighting on the currently hovered leaf.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Deserialize, serde::Serialize),
+    serde(default)
+)]
 pub struct LeafHighlighting {
     /// Fill color.
     pub color: Color32,
@@ -393,6 +455,11 @@ impl Default for ButtonsStyle {
             minimize_window_active_color: Color32::WHITE,
             minimize_window_bg_fill: Color32::GRAY,
             minimize_window_border_color: Color32::BLACK,
+
+            show_tab_bar_color: Color32::GRAY,
+            show_tab_bar_active_color: Color32::WHITE,
+            show_tab_bar_size: 10.0,
+            show_tab_bar_hover_expand: 1.0,
         }
     }
 }
@@ -475,6 +542,7 @@ impl Default for TabBodyStyle {
             stroke: Stroke::default(),
             corner_radius: CornerRadius::default(),
             bg_fill: Color32::WHITE,
+            hidden_tab_bar_drag_height: None,
         }
     }
 }
@@ -491,7 +559,7 @@ impl Default for OverlayStyle {
 
             hovered_leaf_highlight: Default::default(),
             button_color: Color32::from_gray(140),
-            button_border_stroke: Stroke::new(1.0, Color32::from_gray(60)),
+            button_border_stroke: Stroke::new(1.0_f32, Color32::from_gray(60)),
             overlay_type: OverlayType::Widgets,
             feel: Default::default(),
         }
@@ -597,6 +665,8 @@ impl ButtonsStyle {
             minimize_window_color: style.visuals.text_color(),
             minimize_window_active_color: style.visuals.strong_text_color(),
             minimize_window_border_color: style.visuals.widgets.noninteractive.bg_fill,
+            show_tab_bar_color: style.visuals.text_color(),
+            show_tab_bar_active_color: style.visuals.strong_text_color(),
             ..ButtonsStyle::default()
         }
     }
@@ -782,6 +852,7 @@ impl TabBodyStyle {
             stroke: style.visuals.widgets.noninteractive.bg_stroke,
             corner_radius: style.visuals.widgets.active.corner_radius,
             bg_fill: style.visuals.window_fill(),
+            hidden_tab_bar_drag_height: None,
         }
     }
 }
